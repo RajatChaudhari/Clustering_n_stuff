@@ -1,0 +1,171 @@
+import pandas as pd
+import textblob
+from tqdm import tqdm
+df=pd.read_csv('total_profiles.csv')
+df = df[['Department: ','Position Title:','POSITION SUMMARY:','responsabilities','EI','CA','CP','TS']]
+
+#df.to_csv('total_profiles_selected.csv')
+#df.fillna("", inplace=True)
+
+#df=df.dropna()
+
+#df['Department: '].apply(lambda txt: ''.join(textblob.TextBlob(txt).correct()))
+#[df[i].apply(lambda txt: ''.join(textblob.TextBlob(txt).correct())) for i in s]
+#df.info()
+
+import numpy as np
+from sklearn.manifold import TSNE
+
+from nltk.corpus import stopwords
+stop = stopwords.words('english')
+
+from nltk.stem import PorterStemmer
+st = PorterStemmer()
+
+from textblob import Word
+import nltk
+import numpy as np
+nltk.download('wordnet')
+nltk.download('punkt')
+
+from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+from nltk.tokenize import word_tokenize
+
+from sklearn.externals import joblib
+
+
+family=df['Department: ']
+print("Total Length:",len(family))
+family=family.dropna()
+print("Total Length after removing NA:",len(family))
+print("unique Length:",len(set(family)))
+#correct = []
+#for i in tqdm(set(family)): correct.append(''.join(textblob.TextBlob(i).correct()))
+#print("unique Length after spelling correction:",len(set(correct)))
+word_count = family.apply(lambda x: len(str(x).split(" ")))
+print("max word count",max(word_count))
+print("min word count",min(word_count))
+print("max word count",sum(word_count)/len(word_count))
+print("average character count",max(family.str.len()))
+print("min character count",min(family.str.len()))
+stop_words= family.apply(lambda x: len([x for x in x.split() if x in stop]))
+print("Total Stop Words",sum(stop_words))
+special_character = family.apply(lambda x: len([x for x in x.split() if x in ('&','@','#','$','%','!')]))
+print("Total special_character",sum(special_character))
+numerics = family.apply(lambda x: len([x for x in x.split() if x.isdigit()]))
+print("Total numbers",sum(numerics))
+upper = family.apply(lambda x: len([x for x in x.split() if x.isupper()]))
+print("Total upprcase",sum(upper))
+
+####
+family = family.apply(lambda x: " ".join(x.lower() for x in x.split()))
+family = family.str.replace('[^\w\s]','')
+family = family.apply(lambda x: " ".join(x for x in x.split() if x not in stop))
+####
+
+cfreq = pd.Series(' '.join(family).split()).value_counts()[:10]
+print("\n\nCommon words and count:\n",cfreq,'\n\n')
+rfreq = pd.Series(' '.join(family).split()).value_counts()[-10:]
+print("\n\nrare words and count:\n",rfreq,'\n\n')
+
+####
+#family=family.apply(lambda x: " ".join(x for x in x.split() if x not in rfreq))
+#family = family.apply(lambda x: " ".join[Word(word).lemmatize() for word in x.split()]))
+####
+
+##(
+##tagged_data = [TaggedDocument(words=word_tokenize(_d.lower()), tags=[str(i)]) for i, _d in enumerate(family)]
+##
+##max_epochs = 100 * max(word_count)
+##vec_size = max(word_count)
+##alpha = 0.025
+##
+##model = Doc2Vec(size=vec_size,
+##                alpha=alpha, 
+##                min_alpha=0.00025,
+##                min_count=1,
+##                dm =1)
+##  
+##model.build_vocab(tagged_data)
+##
+##for epoch in range(max_epochs):
+##    print('iteration {0}'.format(epoch))
+##    model.train(tagged_data,
+##                total_examples=model.corpus_count,
+##                epochs=model.iter)
+##    model.alpha -= 0.0002
+##
+##
+##model.save("d2v_family.model")
+
+model=Doc2Vec.load("d2v_family.model")
+
+family_vec = np.array([model.docvecs[i] for i in range(0, len(model.docvecs))])
+print("Embeddings original dimension: ", family_vec.shape[1])
+
+ide_family = pd.DataFrame(family)
+
+ide_family['family_vec']=family_vec.tolist()
+#mean_vecs = np.mean(family_vec, axis=0)
+#std_vecs = np.std(family_vec, axis=0)
+#family_data = (family_vec - mean_vecs) / std_vecs
+
+#tsne = TSNE(n_components=2, verbose=2, perplexity=30, n_iter=1000, random_state=15, learning_rate=2000, early_exaggeration=100)
+#tsne_results = tsne.fit_transform(family_data)
+
+
+from sklearn.cluster import MeanShift
+
+##ms = MeanShift()
+##ms.fit(family_data)
+##labels = ms.labels_
+##cluster_centers = ms.cluster_centers_
+##
+##labels = ms.labels_
+##cluster_centers = ms.cluster_centers_
+##
+##labels_unique = np.unique(labels)
+##n_clusters_ = len(labels_unique)
+##
+##joblib.dump(ms,'kmean_family_cluster.pkl')
+
+
+ms = joblib.load('kmean_family_cluster.pkl')
+labels = ms.labels_
+cluster_centers = ms.cluster_centers_
+labels_unique = np.unique(labels)
+n_clusters_ = len(labels_unique)
+print(labels.shape)
+print("number of estimated family : %d" % n_clusters_)
+
+
+ide_family['label']= labels.tolist()
+
+#print(labels.tolist().index(cluster_centers))
+
+from scipy.spatial.distance import cosine
+simil={}
+cfamily={}
+mfamily={}
+for i in range(len(cluster_centers)):
+    simil={}
+    temp = ide_family[ide_family['label'] == i]
+    for j in list(temp.index):
+        val=cosine(np.asarray(temp['family_vec'][j]),cluster_centers[i])
+        simil[temp['Department: '][j]] = val
+    fam=list(simil.keys())[list(simil.values()).index(max(simil.values()))]
+    cfamily[i]= fam
+    mfamily[fam] = simil
+
+print(cfamily)
+df['label']= ide_family['label']
+df['family']=df['label'].map(cfamily)
+joblib.dump(cfamily,'families.lists')
+df.to_csv('department_gen_family.csv')
+
+
+
+
+
+
+

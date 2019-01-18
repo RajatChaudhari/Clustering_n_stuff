@@ -1,0 +1,7 @@
+---
+applications:
+- name: pkloncf
+  memory: 256MB
+  disk_quota: 1024MB
+  random-route: true
+  buildpack: python_buildpack
